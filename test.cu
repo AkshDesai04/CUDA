@@ -58,21 +58,10 @@ int main() {
     // printMatrix(A, N);
     // printMatrix(B, N);
 
-    // Force to use GPU 3 (set GPU 3 as device)
-    int deviceId = 3;  // Force to use GPU 3 (counting from 0)
-
-    // Check if the selected device exists
-    int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
-    if (deviceId >= deviceCount) {
-        printf("GPU %d not found. Available GPUs: %d\n", deviceId, deviceCount);
-        return -1;
-    }
-
-    // Set the GPU device
-    cudaSetDevice(deviceId);
+    // Use the default GPU
+    cudaSetDevice(0);  // Automatically uses the default device (GPU 0)
     cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, deviceId);
+    cudaGetDeviceProperties(&prop, 0);
     printf("Using GPU: %s\n", prop.name);
 
     // Allocate memory on the device
