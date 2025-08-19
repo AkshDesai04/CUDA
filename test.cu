@@ -58,7 +58,7 @@ int main() {
     // printMatrix(A, N);
     // printMatrix(B, N);
 
-    // Force to use GPU 3
+    // Force to use GPU 3 (set GPU 3 as device)
     int deviceId = 3;  // Force to use GPU 3 (counting from 0)
 
     // Check if the selected device exists
@@ -97,6 +97,9 @@ int main() {
         printf("CUDA error: %s\n", cudaGetErrorString(err));
         return -1;
     }
+
+    // Wait for the kernel to finish
+    cudaDeviceSynchronize();
 
     // Copy result from device to host
     cudaMemcpy(C, d_C, size, cudaMemcpyDeviceToHost);
