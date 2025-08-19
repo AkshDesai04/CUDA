@@ -61,6 +61,15 @@ int main() {
     // Force to use GPU 3
     int deviceId = 3;  // Force to use GPU 3 (counting from 0)
 
+    // Check if the selected device exists
+    int deviceCount;
+    cudaGetDeviceCount(&deviceCount);
+    if (deviceId >= deviceCount) {
+        printf("GPU %d not found. Available GPUs: %d\n", deviceId, deviceCount);
+        return -1;
+    }
+
+    // Set the GPU device
     cudaSetDevice(deviceId);
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, deviceId);
