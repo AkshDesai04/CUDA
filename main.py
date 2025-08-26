@@ -13,11 +13,10 @@ Before you write the code, write in a multiline comment the aim of the program w
 THREAD_COUNT = 4
 
 class ModelInstance:
-    """Persistent Ollama model instance bound to a specific GPU."""
-    def __init__(self, gpu_index):
+    """Persistent Ollama model instance."""
+    def __init__(self):
         self.model_name = "gpt-oss:20b"
-        self.device = f"cuda:{gpu_index}"  # assign GPU
-        print(f"[INFO] Initialized model on {self.device}")
+        print(f"[INFO] Initialized model {self.model_name}")
 
     def query(self, user_prompt):
         response = ollama.chat(
@@ -25,8 +24,7 @@ class ModelInstance:
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
-            ],
-            device=self.device
+            ]
         )
         return response["message"]["content"]
 
@@ -37,9 +35,9 @@ def process_prompt(model_instance, tag: str, prompt: str):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(output)
 
-def worker(items, position, gpu_index):
+def worker(items, position):
     """Thread worker: initializes its own model instance and processes prompts with a progress bar."""
-    model_instance = ModelInstance(gpu_index)
+    model_instance = ModelInstance()
     pbar = tqdm(total=len(items), desc=f"Thread {position+1}", position=position)
     for tag, prompt in items:
         process_prompt(model_instance, tag, prompt)
@@ -61,7 +59,7 @@ def main():
     threads = []
 
     for i, chunk in enumerate(chunks):
-        t = threading.Thread(target=worker, args=(chunk, i, i))  # GPU index = thread index
+        t = threading.Thread(target=worker, args=(chunk, i))
         t.start()
         threads.append(t)
 
@@ -72,3 +70,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
