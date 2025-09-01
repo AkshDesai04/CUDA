@@ -1,0 +1,2 @@
+Device‑to‑host copies are usually **slower** than device‑to‑device copies (or host‑to‑device copies).  
+The reason is that the data has to travel across the PCI‑Express bus, whose bandwidth (typically 5–16 GB/s depending on the generation and link width) is far lower than the internal GPU memory bandwidth (hundreds of GB/s). Even though the PCI‑Express transfer can be overlapped with computation using streams and pinned memory, the raw throughput is still limited by the bus, making device‑to‑host transfers the bottleneck in many workloads.
