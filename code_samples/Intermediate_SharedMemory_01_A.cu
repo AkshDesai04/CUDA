@@ -1,0 +1,15 @@
+In a “naïve” CUDA kernel (for example the classic matrix‑multiplication kernel that is often used as a starting point before any optimization), the access to matrix **B** is typically done by having each thread read a *row* of B in order to accumulate the dot product for its output element.  
+
+Because of the way CUDA devices map memory transactions to the GPU’s memory controller, this pattern is highly inefficient for the following reasons:
+
+| Aspect | What the naive kernel does | Why it hurts performance |
+|--------|---------------------------|--------------------------|
+| **Layout of B in memory** | Most high‑level libraries (Eigen, cuBLAS, etc.) store matrices in **column‑major** order. In C/CUDA, the natural layout is also column‑major: `B[i + j*ldb]` gives the element in row i, column j. | When a warp of 32 threads reads consecutive elements along a *row* (i.e., `B[row][col]` with `col` varying by 1 for each thread), the threads actually access memory addresses that differ by the *leading dimension* (`ldb`), which is usually equal to the number of rows. This stride is typically large (often equal to the height of the matrix). |
+| **Memory coalescing** | In the naive kernel, each thread in a warp reads a separate element that is **far apart** in global memory. | For a warp to issue a single 128‑byte transaction (the size of a typical memory transaction on modern GPUs), all 32 threads must access contiguous 4‑byte words. With a stride of `ldb` words, the 32 reads are distributed over many different 128‑byte banks, forcing **32 separate memory transactions** instead of one. |
+| **Bandwidth utilisation** | The kernel therefore requests far more memory traffic than needed. | Each uncoalesced access consumes a full transaction from the memory controller. The global‑memory bandwidth is thus heavily under‑utilised, and the kernel stalls waiting for data to arrive. |
+| **Cache behaviour** | The stride is usually larger than the cache line size (typically 32‑byte or 64‑byte). | The cache lines fetched for each thread do not overlap, so the hardware cannot reuse the data for neighbouring threads. Cache utilisation drops to almost zero. |
+| **Latency** | The device must perform many independent memory loads for a single warp. | Latency of each load adds up, and the warp can be stalled until all 32 loads finish. The overall instruction throughput falls dramatically. |
+
+In short, the naive kernel treats **B** as if it were laid out in row‑major order, causing each warp to read a *strided* sequence of elements. The stride is equal to the leading dimension of B (usually the matrix height), so consecutive threads in a warp are accessing memory that is far apart. This pattern is **uncoalesced** and results in a 32× increase in the number of memory transactions, severe cache thrashing, and a huge drop in bandwidth utilisation. 
+
+A typical optimisation strategy is to transpose **B** (or to store it in a row‑major layout) so that each warp reads a contiguous block of memory, thereby enabling coalesced loads and dramatically improving performance.

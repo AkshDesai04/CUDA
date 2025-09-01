@@ -1,0 +1,13 @@
+Yes.
+
+**Why pinned (page‑locked) memory is required for truly asynchronous `cudaMemcpyAsync` that can overlap with kernel execution**
+
+| Aspect | Without pinned memory | With pinned memory |
+|--------|-----------------------|--------------------|
+| **Memory residency** | Host memory is pageable (can be swapped out to disk). | Host memory is page‑locked; the operating system guarantees that the pages remain resident in RAM. |
+| **DMA capability** | CUDA runtime must first copy data from pageable host memory into an internal *staging* buffer that is page‑locked. The copy from host → device is then performed from this staging buffer. This two‑step process is performed on the CPU, blocking the CPU thread until the transfer is finished. | The copy can be performed directly via DMA from the pinned host buffer to the device, without an intermediate staging buffer. |
+| **Blocking behavior** | Even though the API is `cudaMemcpyAsync`, the operation is effectively synchronous: the call blocks the host thread until the transfer is complete. Because the copy must wait for the staging buffer copy, it cannot overlap with kernel execution. | The call returns immediately, allowing the host thread to continue executing. The GPU can issue the DMA transfer concurrently with kernel execution (subject to hardware capability and stream separation). |
+| **Stream ordering** | The copy will be scheduled after any preceding operations in the stream, but the CPU‑side staging copy blocks the stream launch. | The copy is queued in the stream and can execute concurrently with kernels in the same or other streams. |
+| **Overlap with kernels** | No, because the host‑side copy blocks the kernel launch; the GPU will not start the kernel until the copy is finished. | Yes, when the copy and the kernel are placed in separate streams (or the same stream with `cudaStreamNonBlocking` semantics), the GPU can perform host‑to‑device transfer while executing the kernel simultaneously. |
+
+In short, **pinned memory guarantees that the CUDA runtime can use hardware‑directed DMA to transfer data directly to or from the device.** Without it, the runtime must perform an intermediate copy to a temporary pinned buffer on the host side, which blocks the host thread and prevents the transfer from overlapping with kernel execution. Therefore, to obtain true asynchronous `cudaMemcpyAsync` that overlaps with kernel execution, the host memory involved in the copy must be pinned.

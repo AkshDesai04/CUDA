@@ -1,0 +1,11 @@
+Using `cudaMalloc` together with `cudaMemcpy` on a 2‑D array is perfectly legal – the code compiles, the kernel runs, and the data appears correct.  
+However, this “flat” approach can hurt performance for two main reasons:
+
+| What the 1‑D helpers do | What the 2‑D helpers (pitch) do | Why the 1‑D helpers are slower |
+|--------------------------|----------------------------------|---------------------------------|
+| `cudaMalloc` allocates a contiguous block of **width × height × sizeof(T)** bytes. | `cudaMallocPitch` allocates a block whose *row stride* (pitch) is rounded up to a multiple of 128 bytes (or a device‑specific alignment). | The pitch produced by `cudaMalloc` is usually just `width*sizeof(T)` which may **not** be a multiple of 128 bytes. |
+| `cudaMemcpy` copies the array as a single linear blob. | `cudaMemcpy2D` copies each row with the correct pitch, preserving any padding added by the device. | The kernel’s row accesses become **mis‑aligned** and potentially span two 128‑byte memory segments. Each warp then triggers **two memory transactions** instead of one. |
+| The host‑to‑device transfer is a single linear copy of the whole block. | The host‑to‑device transfer is a set of row‑by‑row copies that match the device pitch. | Even though the transfer still completes, the data layout on the device is sub‑optimal for coalescing, causing more memory traffic. |
+| In device code you compute indices as `idx = y * width + x`. | In device code you compute indices as `idx = y * pitch + x`. | Mis‑aligned memory accesses increase latency and decrease bandwidth utilization. |
+
+In short, **using the pitch/2‑D API ensures that each row starts on a 128‑byte boundary and that the kernel can read contiguous 128‑byte chunks per warp.** When you bypass that and use plain `cudaMalloc`/`cudaMemcpy`, you lose this alignment guarantee. As a result, memory accesses may become uncoalesced, memory transactions double, and bandwidth consumption rises, leading to noticeably slower performance.

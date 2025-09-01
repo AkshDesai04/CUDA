@@ -1,0 +1,5 @@
+[INFO] Initialized model on cuda:0
+[INFO] Initialized model on cuda:1
+[INFO] Initialized model on cuda:2
+[INFO] Initialized model on cuda:3
+[✔] All prompts processed.
