@@ -1,36 +1,35 @@
+```cu
 /*
-Aim: Write a CUDA program to query and print the number of CUDA-enabled devices available on your system. The program should use the `cudaGetDeviceCount` API call and print a user-friendly message, such as 'Found X CUDA-capable devices.'
+Aim of the program: 
+Write a CUDA program to query and print the number of CUDA-enabled devices available on your system. The program should use the `cudaGetDeviceCount` API call and print a user-friendly message, such as 'Found X CUDA-capable devices.'
 
 Thinking:
-1. The program is a simple host-only CUDA application that queries the number of available GPU devices.
-2. We need to include the CUDA runtime header <cuda_runtime.h> to access `cudaGetDeviceCount`.
-3. We'll use a minimal `main` function that:
-   - Declares an integer to hold the device count.
-   - Calls `cudaGetDeviceCount(&count)` and checks the returned `cudaError_t`.
-   - If the call fails, we print an error message using `cudaGetErrorString(err)`.
-   - If successful, we print "Found X CUDA-capable devices." where X is the device count.
-4. The program is straightforward; no device kernels are launched.
-5. We'll use `std::cout` for printing, so we include `<iostream>`.
-6. The code will compile with `nvcc`, e.g., `nvcc -o device_count device_count.cu`.
-7. Edge cases:
-   - If there are zero devices, the message will correctly say "Found 0 CUDA-capable devices."
-   - If `cudaGetDeviceCount` returns an error, we report it and exit with non-zero status.
+1. We need to include the CUDA runtime header `cuda_runtime.h` to use `cudaGetDeviceCount`.
+2. Use `int main()` as the entry point.
+3. Declare an integer variable to hold the device count.
+4. Call `cudaGetDeviceCount(&count)` and capture the returned `cudaError_t`.
+5. Check if the call succeeded. If not, print an error message using `cudaGetErrorString(err)` and exit with a non-zero status.
+6. If successful, print the message "Found X CUDA-capable devices." using `std::cout`.
+7. Return 0 to indicate success.
+8. Since we are writing a .cu file, we use `#include <cuda_runtime.h>` and `#include <iostream>`.
+9. No kernel launch or other CUDA features are needed; this is purely a host query program.
+10. Ensure the code compiles with `nvcc`. 
 */
 
-#include <iostream>
 #include <cuda_runtime.h>
+#include <iostream>
 
-int main() {
+int main()
+{
     int deviceCount = 0;
     cudaError_t err = cudaGetDeviceCount(&deviceCount);
-    if (err != cudaSuccess) {
-        std::cerr << "Error querying device count: " 
-                  << cudaGetErrorString(err) << std::endl;
-        return 1;
+    if (err != cudaSuccess)
+    {
+        std::cerr << "cudaGetDeviceCount failed: " << cudaGetErrorString(err) << std::endl;
+        return -1;
     }
 
-    std::cout << "Found " << deviceCount 
-              << " CUDA-capable device" << (deviceCount == 1 ? "" : "s") << "." << std::endl;
-
+    std::cout << "Found " << deviceCount << " CUDA-capable devices." << std::endl;
     return 0;
 }
+```

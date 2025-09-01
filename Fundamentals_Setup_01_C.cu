@@ -1,40 +1,36 @@
-/*
-Aim: Write a program to explicitly set the active CUDA device to 0 using `cudaSetDevice`. Verify the call was successful by then calling `cudaGetDevice` and printing the result.
+```cpp
+/* 
+Write a program to explicitly set the active CUDA device to 0 using `cudaSetDevice`. Verify the call was successful by then calling `cudaGetDevice` and printing the result.
 
-Thinking: 
-- Include <cuda_runtime.h> to access CUDA runtime API functions.
-- Use `cudaSetDevice(0)` to set the active device to GPU 0.
-- Check the returned `cudaError_t`; if it's not `cudaSuccess`, print the error string via `cudaGetErrorString` and exit.
-- After setting, call `cudaGetDevice(&dev)` to retrieve the currently active device index.
-- Print the index using `printf`.
-- For good practice, reset the device with `cudaDeviceReset()` before exiting, though it is optional for this simple demo.
-- Compile with `nvcc` (e.g., `nvcc -o set_device_demo set_device_demo.cu`).
+Thinking process:
+1. Include necessary headers: <cuda_runtime.h> for CUDA runtime API and <cstdio> for printing.
+2. In main, call cudaSetDevice(0). Check the return value; if not cudaSuccess, print an error and exit.
+3. Call cudaGetDevice to retrieve the currently active device. Again check the return value for errors.
+4. Print the device number obtained from cudaGetDevice, which should be 0 if everything worked.
+5. Return 0 from main to indicate successful execution.
+6. Ensure the code is self-contained in a single .cu file so it can be compiled with nvcc.
 */
 
-#include <stdio.h>
 #include <cuda_runtime.h>
+#include <cstdio>
 
 int main(void) {
-    // Explicitly set the active CUDA device to 0
-    cudaError_t err = cudaSetDevice(0);
+    int device = 0;
+    cudaError_t err = cudaSetDevice(device);
     if (err != cudaSuccess) {
-        printf("cudaSetDevice failed: %s\n", cudaGetErrorString(err));
-        return -1;
+        fprintf(stderr, "Error: cudaSetDevice(%d) failed: %s\n", device, cudaGetErrorString(err));
+        return 1;
     }
 
-    // Retrieve the currently active device
-    int deviceId = -1;
-    err = cudaGetDevice(&deviceId);
+    int currentDevice = -1;
+    err = cudaGetDevice(&currentDevice);
     if (err != cudaSuccess) {
-        printf("cudaGetDevice failed: %s\n", cudaGetErrorString(err));
-        return -1;
+        fprintf(stderr, "Error: cudaGetDevice failed: %s\n", cudaGetErrorString(err));
+        return 1;
     }
 
-    // Print the active device index
-    printf("Active CUDA device is %d\n", deviceId);
-
-    // Optional: Reset the device before exiting
-    cudaDeviceReset();
+    printf("Successfully set active device to %d. Current device is %d.\n", device, currentDevice);
 
     return 0;
 }
+```

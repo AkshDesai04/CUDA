@@ -1,44 +1,50 @@
 ```cuda
 /*
-Aim of the program:
-Query and print the memory clock rate of the primary CUDA device in kilohertz (kHz).
+ * Aim of the program (exact wording from the prompt):
+ * Query and print the memory clock rate of the primary CUDA device in kilohertz (kHz).
+ *
+ * Thought process:
+ * 1. To obtain the memory clock rate, we need to use the CUDA Runtime API.
+ * 2. The memory clock rate is stored in the cudaDeviceProp structure returned
+ *    by cudaGetDeviceProperties(). The field `memoryClockRate` gives the rate in
+ *    kHz. The prompt explicitly asks to print it in kHz, so we can simply print
+ *    that value.
+ * 3. We should query the primary device using cudaGetDevice(). That gives us
+ *    the current device index.
+ * 4. Error checking: after each CUDA call we should check the returned
+ *    cudaError_t and, if it indicates failure, print an error message and exit.
+ * 5. The program is very small, so we can keep it all in main(). We use
+ *    stdio.h for printing.
+ * 6. Since we are writing a .cu file, we need to include <cuda_runtime.h>.
+ * 7. Finally, we return 0 on success.
+ */
 
-Thinking process:
-1. The task requires us to obtain the memory clock rate from the GPU properties.
-2. CUDA provides the function cudaGetDeviceProperties which fills a cudaDeviceProp
-   structure with information about a device. The field memoryClockRate gives
-   the memory clock rate in kilohertz (kHz).
-3. We target the primary device, which is device 0. We will set the device
-   explicitly with cudaSetDevice(0) to be safe.
-4. After retrieving the device properties, we simply print the memoryClockRate
-   using printf. No GPU kernel launch is needed.
-5. We also add basic error checking: if any CUDA API call fails, we print
-   an error message and exit with a non-zero status.
-6. The program is self‑contained, includes the necessary headers, and can be
-   compiled with nvcc to produce an executable that prints the desired value.
-*/
-
-#include <cstdio>
-#include <cstdlib>
+#include <stdio.h>
 #include <cuda_runtime.h>
 
+// Helper macro for CUDA error checking
+#define CHECK_CUDA(call)                                           \
+    do {                                                           \
+        cudaError_t err = (call);                                  \
+        if (err != cudaSuccess) {                                 \
+            fprintf(stderr, "CUDA error at %s:%d - %s\n",          \
+                    __FILE__, __LINE__, cudaGetErrorString(err)); \
+            return EXIT_FAILURE;                                  \
+        }                                                          \
+    } while (0)
+
 int main(void) {
-    int device = 0; // Primary device
-    cudaError_t err = cudaSetDevice(device);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Failed to set device %d: %s\n", device, cudaGetErrorString(err));
-        return EXIT_FAILURE;
-    }
+    int device = 0;
+    // Get the current device (primary device)
+    CHECK_CUDA(cudaGetDevice(&device));
 
+    // Retrieve properties of the device
     cudaDeviceProp prop;
-    err = cudaGetDeviceProperties(&prop, device);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Failed to get device properties for device %d: %s\n", device, cudaGetErrorString(err));
-        return EXIT_FAILURE;
-    }
+    CHECK_CUDA(cudaGetDeviceProperties(&prop, device));
 
-    // memoryClockRate is already in kHz, as per CUDA documentation.
-    printf("Memory clock rate of device %d: %d kHz\n", device, prop.memoryClockRate);
+    // Print the memory clock rate in kHz
+    printf("Memory Clock Rate of device %d (%s): %d kHz\n",
+           device, prop.name, prop.memoryClockRate);
 
     return EXIT_SUCCESS;
 }
