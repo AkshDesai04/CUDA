@@ -1,0 +1,1 @@
+The error is **asynchronous** – the kernel launch itself returns immediately. However, any launch‑configuration errors (such as exceeding the maximum number of threads per block) are reported back right away, and you can query them immediately with `cudaGetLastError()`.
