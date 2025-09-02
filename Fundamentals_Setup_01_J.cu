@@ -1,47 +1,29 @@
 /*
-Query if the primary device has ECC (Error-Correcting Code) memory enabled and print the result.
+Aim of the program: Query if the primary device has ECC (Error-Correcting Code) memory enabled and print the result.
 
 Thinking process:
-- We need to write a CUDA C program (.cu) that queries the ECC status of the primary GPU device.
-- Use CUDA runtime API to get the current device ID via cudaGetDevice().
-- Then use cudaGetDeviceProperties() to obtain a cudaDeviceProp structure.
-- The cudaDeviceProp struct has an int field ECCEnabled that indicates whether ECC is enabled (1) or not (0).
-- Print the status: "ECC memory is enabled" or "ECC memory is disabled".
-- Include error checking: if cudaGetDevice() or cudaGetDeviceProperties() fails, print an error message.
-- Use a helper macro CUDA_CHECK to wrap CUDA calls for concise error handling.
-- The program is simple, so include only necessary headers: <stdio.h> and <cuda_runtime.h>.
-- The main function will perform the steps above and return 0 on success.
+1. The program should be a CUDA C (.cu) file that uses the CUDA Runtime API to query the ECC status of the primary GPU device.
+2. In CUDA Runtime, there is an attribute enum `cudaDevAttrEccEnabled` that indicates whether ECC is enabled on a device.
+3. Use `cudaDeviceGetAttribute` to query this attribute for device 0 (the primary device).
+4. Handle any CUDA errors gracefully by printing an error message and returning a non‑zero exit code.
+5. Finally, print a human‑readable message indicating whether ECC is enabled or disabled.
+6. Include necessary headers (`<stdio.h>` and `<cuda_runtime.h>`).
+7. Keep the code simple and self‑contained; no external dependencies other than the CUDA Runtime library.
+8. The program should compile with `nvcc` and run on a system with a CUDA capable GPU.
 */
 
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-// Helper macro for CUDA error checking
-#define CUDA_CHECK(call)                                                       \
-    do {                                                                       \
-        cudaError_t err = call;                                                \
-        if (err != cudaSuccess) {                                              \
-            fprintf(stderr, "CUDA error in %s at line %d: %s\n",                \
-                    __FILE__, __LINE__, cudaGetErrorString(err));              \
-            return EXIT_FAILURE;                                               \
-        }                                                                      \
-    } while (0)
-
 int main(void) {
-    int device = 0;
-    CUDA_CHECK(cudaGetDevice(&device));
-
-    cudaDeviceProp prop;
-    CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
-
-    if (prop.ECCEnabled) {
-        printf("ECC memory is enabled on device %d (%s).\n", device, prop.name);
-    } else {
-        printf("ECC memory is disabled on device %d (%s).\n", device, prop.name);
+    int device = 0;  // primary device
+    int eccEnabled = 0;
+    cudaError_t err = cudaDeviceGetAttribute(&eccEnabled, cudaDevAttrEccEnabled, device);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "Error querying ECC status: %s\n", cudaGetErrorString(err));
+        return 1;
     }
 
-    // Clean up CUDA context (optional, as program ends)
-    CUDA_CHECK(cudaDeviceReset());
-
-    return EXIT_SUCCESS;
+    printf("Device %d ECC status: %s\n", device, eccEnabled ? "Enabled" : "Disabled");
+    return 0;
 }

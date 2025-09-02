@@ -1,16 +1,18 @@
-```c
 /*
-Aim of the program: Iterate through all devices and print the warp size for each one.
+Aim of the program:
+Iterate through all devices and print the warp size for each one.
 
 Thinking:
-To accomplish the goal we need to query the system for the number of CUDA-capable devices,
-then for each device retrieve its properties using cudaGetDeviceProperties. The warp size
-is stored in the 'warpSize' member of the cudaDeviceProp structure. We will print each
-device index along with its warp size. Basic error handling will be added to ensure that
-any CUDA API call failures are reported. The program will be written in plain C with
-CUDA runtime API calls and will compile with nvcc. No additional functionality beyond
-printing the warp size is required, but printing the device name could be helpful for
-clarity, though it's optional.
+1. Need to query the number of CUDA-capable devices using cudaGetDeviceCount.
+2. For each device index from 0 to count-1:
+   a. Use cudaGetDeviceProperties to obtain a cudaDeviceProp struct.
+   b. Extract the warpSize field.
+   c. Print the device index, name, and warp size.
+3. Handle errors from CUDA API calls; if any fail, print an error message and exit.
+4. Use standard C/C++ I/O (printf) for simplicity.
+5. The program will be compiled with nvcc and produces a single .cu file.
+6. No external dependencies beyond the CUDA runtime library.
+7. The code will be self-contained, with a single main function and necessary includes.
 */
 
 #include <stdio.h>
@@ -20,26 +22,28 @@ int main(void) {
     int deviceCount = 0;
     cudaError_t err = cudaGetDeviceCount(&deviceCount);
     if (err != cudaSuccess) {
-        fprintf(stderr, "Failed to get device count: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "cudaGetDeviceCount failed: %s\n", cudaGetErrorString(err));
         return 1;
     }
 
     if (deviceCount == 0) {
-        printf("No CUDA devices found.\n");
+        printf("No CUDA-capable devices found.\n");
         return 0;
     }
 
-    printf("Found %d CUDA device(s).\n", deviceCount);
+    printf("Found %d CUDA-capable device(s).\n", deviceCount);
+
     for (int dev = 0; dev < deviceCount; ++dev) {
         cudaDeviceProp prop;
         err = cudaGetDeviceProperties(&prop, dev);
         if (err != cudaSuccess) {
-            fprintf(stderr, "Failed to get properties for device %d: %s\n", dev, cudaGetErrorString(err));
+            fprintf(stderr, "cudaGetDeviceProperties failed for device %d: %s\n", dev, cudaGetErrorString(err));
             continue;
         }
-        printf("Device %d (%s): Warp Size = %d\n", dev, prop.name, prop.warpSize);
+
+        printf("Device %d: %s\n", dev, prop.name);
+        printf("  Warp size: %d\n", prop.warpSize);
     }
 
     return 0;
 }
-```

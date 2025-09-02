@@ -1,52 +1,22 @@
 /*
- * Aim: Query and print the PCI Bus ID and PCI Device ID for the primary GPU.
- *
- * Thinking:
- * - We want to query the primary GPU, which is device 0 in CUDA.
- * - Use cudaGetDeviceProperties to obtain a cudaDeviceProp struct.
- * - The struct contains `pciBusID` and `pciDeviceID` fields (note that
- *   the fields are named `pciBusID` and `pciDeviceID` in recent CUDA
- *   versions; older versions used `busId` and `deviceId`).
- * - We'll perform error checking after each CUDA call.
- * - Print the bus and device IDs in a readable format.
- * - The program is a simple console application written in C++ (compatible
- *   with CUDA C++). It can be compiled with `nvcc` and run on a machine
- *   with an NVIDIA GPU.
- */
+Aim: Query and print the PCI Bus ID and PCI Device ID for the primary GPU.
 
-#include <cstdio>
-#include <iostream>
+Thinking:
+To achieve this, we use the CUDA Runtime API. The primary GPU is typically device 0, so we set `int device = 0;`. We then call `cudaGetDeviceProperties` to fill a `cudaDeviceProp` structure with information about the GPU. This structure contains the `pciBusID` and `pciDeviceID` fields that we want to print. After retrieving the properties, we output these IDs using `printf`. We also perform basic error checking: if `cudaGetDeviceProperties` returns an error, we print the error string and exit with a non-zero status. This simple program is self-contained and should compile with `nvcc` and run on any system with CUDA installed, displaying the requested PCI identifiers for the first GPU in the system. 
+*/
+
+#include <stdio.h>
 #include <cuda_runtime.h>
 
-// Helper macro for CUDA error checking
-#define CUDA_CHECK(call)                                                    \
-    do {                                                                    \
-        cudaError_t err = (call);                                           \
-        if (err != cudaSuccess) {                                           \
-            std::cerr << "CUDA error in file '" << __FILE__                 \
-                      << "' in line " << __LINE__ << ": "                   \
-                      << cudaGetErrorString(err) << " (" << err << ")"      \
-                      << std::endl;                                         \
-            exit(EXIT_FAILURE);                                             \
-        }                                                                   \
-    } while (0)
-
-int main() {
-    int deviceCount = 0;
-    CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
-
-    if (deviceCount == 0) {
-        std::cerr << "No CUDA-capable devices found." << std::endl;
-        return EXIT_FAILURE;
+int main(void) {
+    int device = 0;  // primary GPU
+    cudaDeviceProp prop;
+    cudaError_t err = cudaGetDeviceProperties(&prop, device);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaGetDeviceProperties failed: %s\n", cudaGetErrorString(err));
+        return 1;
     }
 
-    // Query properties for the primary GPU (device 0)
-    cudaDeviceProp deviceProp;
-    CUDA_CHECK(cudaGetDeviceProperties(&deviceProp, 0));
-
-    // Print PCI Bus ID and PCI Device ID
-    std::cout << "Primary GPU PCI Bus ID: "   << static_cast<int>(deviceProp.pciBusID)   << std::endl;
-    std::cout << "Primary GPU PCI Device ID: " << static_cast<int>(deviceProp.pciDeviceID) << std::endl;
-
-    return EXIT_SUCCESS;
+    printf("PCI Bus ID: %d\nPCI Device ID: %d\n", prop.pciBusID, prop.pciDeviceID);
+    return 0;
 }

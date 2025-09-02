@@ -1,42 +1,50 @@
 /*
-Aim of the program: Query and print the total number of registers available per thread block on the primary device.
+Query and print the total number of registers available per thread block on the primary device.
 
-Thinking:
-- The CUDA Runtime API provides device attributes that expose hardware limits.
-- One such attribute is `cudaDevAttrMaxRegistersPerBlock`, which reports the maximum number of 32‑bit registers that can be allocated to a single thread block on a given device.
-- To retrieve this value, we use `cudaDeviceGetAttribute`. This function requires the attribute enum, a pointer to store the result, and the device ID.
-- The "primary device" is typically device 0, but we query the current device to be safe. We can also set the device explicitly with `cudaSetDevice(0)`.
-- After retrieving the value, we simply print it to standard output.
-- Error handling: check the return status of CUDA API calls and report failures.
+The goal of this program is to provide a simple CUDA host-side application that retrieves
+and displays the amount of registers that each thread block can use on the first
+CUDA-capable device found.  CUDA exposes this information in the cudaDeviceProp
+structure, under the field `regsPerBlock`.  To accomplish the task we:
 
-The program is written in CUDA C, compiled with `nvcc`, and contains no external dependencies beyond the CUDA Runtime API.
+1. Enumerate the available CUDA devices using `cudaGetDeviceCount`.
+2. Select device 0 (the primary device) and query its properties via
+   `cudaGetDeviceProperties`.
+3. Extract the `regsPerBlock` field from the returned `cudaDeviceProp` instance.
+4. Print the value to standard output.
+5. Perform basic error checking after each CUDA API call.
+
+The program is self‑contained and compiles with any recent nvcc compiler.
 */
 
 #include <stdio.h>
 #include <cuda_runtime.h>
 
+// Helper macro for error checking
+#define CUDA_CHECK(call)                                               \
+    do {                                                               \
+        cudaError_t err = (call);                                      \
+        if (err != cudaSuccess) {                                      \
+            fprintf(stderr, "CUDA error at %s:%d - %s\n",              \
+                    __FILE__, __LINE__, cudaGetErrorString(err));     \
+            return EXIT_FAILURE;                                      \
+        }                                                              \
+    } while (0)
+
 int main(void) {
-    int device = 0; // Primary device
-    cudaError_t err;
+    int deviceCount = 0;
+    CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
 
-    // Ensure we are using the correct device
-    err = cudaSetDevice(device);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Error setting device %d: %s\n", device, cudaGetErrorString(err));
-        return 1;
+    if (deviceCount == 0) {
+        fprintf(stderr, "No CUDA-capable devices found.\n");
+        return EXIT_FAILURE;
     }
 
-    // Retrieve the maximum number of registers per block
-    int maxRegsPerBlock = 0;
-    err = cudaDeviceGetAttribute(&maxRegsPerBlock,
-                                 cudaDevAttrMaxRegistersPerBlock,
-                                 device);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Error retrieving cudaDevAttrMaxRegistersPerBlock: %s\n", cudaGetErrorString(err));
-        return 1;
-    }
+    int device = 0; // primary device
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
 
-    printf("Maximum registers per thread block on device %d: %d\n", device, maxRegsPerBlock);
+    printf("Device %d (%s):\n", device, prop.name);
+    printf("  Total registers per thread block: %d\n", prop.regsPerBlock);
 
-    return 0;
+    return EXIT_SUCCESS;
 }

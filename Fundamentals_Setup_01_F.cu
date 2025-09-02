@@ -1,34 +1,41 @@
-```cpp
 /*
-Aim: Query and print the amount of shared memory available per thread block in bytes for the primary device.
+Query and print the amount of shared memory available per thread block in bytes for the primary device.
 
-Thinking: 
-1. We need to query the CUDA device properties for the primary device (device ID 0 by default).
-2. The relevant field in cudaDeviceProp is sharedMemPerBlock which stores the amount of shared memory available per block in bytes.
-3. We'll use cudaGetDeviceProperties to fill a cudaDeviceProp struct.
-4. After fetching the properties, we print the sharedMemPerBlock value to standard output.
-5. We'll include basic error checking: if cudaGetDeviceProperties fails, we print an error and exit.
-6. The program is a simple host-only C++ program that uses the CUDA Runtime API, so no kernels are launched.
-7. Since we want a .cu file, we include <cuda_runtime.h> and <iostream>.
-8. The program will compile with nvcc and run on systems with CUDA installed.
-9. We'll keep the code minimal and self-contained, with a single main function.
+Thinking:
+- The program needs to query CUDA device properties and print the shared memory per block.
+- We'll use cudaGetDevice to obtain the current active device (default is device 0).
+- Then use cudaGetDeviceProperties to retrieve a cudaDeviceProp struct for that device.
+- The field prop.sharedMemPerBlock contains the amount of shared memory available per thread block in bytes.
+- We'll print this value using printf.
+- Error checking is added: if any CUDA API call fails, we print an error message and exit with a non-zero status.
+- Include necessary headers: <stdio.h> for I/O and <cuda_runtime.h> for CUDA runtime API.
+- The program will be a simple C/C++ main function that compiles with nvcc as a .cu file.
 */
 
+#include <stdio.h>
 #include <cuda_runtime.h>
-#include <iostream>
 
-int main() {
-    int device_id = 0; // primary device
+int main(void) {
+    int device = 0; // primary device
     cudaDeviceProp prop;
-    cudaError_t err = cudaGetDeviceProperties(&prop, device_id);
+    cudaError_t err;
+
+    // Get current device
+    err = cudaGetDevice(&device);
     if (err != cudaSuccess) {
-        std::cerr << "Error getting device properties: " << cudaGetErrorString(err) << std::endl;
-        return 1;
+        fprintf(stderr, "Error: cudaGetDevice failed: %s\n", cudaGetErrorString(err));
+        return -1;
     }
 
-    std::cout << "Shared memory per block for device " << device_id
-              << ": " << prop.sharedMemPerBlock << " bytes" << std::endl;
+    // Get device properties
+    err = cudaGetDeviceProperties(&prop, device);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "Error: cudaGetDeviceProperties failed: %s\n", cudaGetErrorString(err));
+        return -1;
+    }
+
+    // Print the amount of shared memory per block
+    printf("Shared memory per block (bytes): %zu\n", prop.sharedMemPerBlock);
 
     return 0;
 }
-```

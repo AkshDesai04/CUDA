@@ -1,37 +1,40 @@
 /*
- * Aim of the program: Query and print the number of multiprocessors on the primary CUDA device (device 0).
- *
- * Thinking process:
- * 1. The goal is to query the number of multiprocessors on the default primary device (device 0).
- * 2. In CUDA C, the device properties can be retrieved using cudaGetDeviceProperties().
- * 3. The device number can be specified as 0. Optionally we can call cudaSetDevice(0) to ensure we are on that device.
- * 4. The cudaDeviceProp struct contains a field called multiProcessorCount which holds the desired value.
- * 5. We'll print the value using printf. Basic error handling will be included to catch CUDA API failures.
- * 6. The program will be a minimal self-contained .cu file that can be compiled with nvcc.
- */
+Query and print the number of multiprocessors on the primary CUDA device (device 0).
 
-#include <stdio.h>
+Thinking:
+To obtain the number of multiprocessors on the first CUDA device, we need to:
+1. Include the CUDA runtime header (`cuda_runtime.h`) and the standard iostream.
+2. Set device 0 as the current device using `cudaSetDevice(0)` (though this is optional for querying properties, it ensures we are working with the primary device).
+3. Retrieve the device properties structure via `cudaGetDeviceProperties`.
+4. The field `multiProcessorCount` in the returned structure holds the number of SMs.
+5. Print this value to standard output.
+6. Wrap CUDA API calls in a helper macro (`CUDA_CHECK`) that aborts on error for simplicity.
+7. Return `0` from `main`.
+*/
+
 #include <cuda_runtime.h>
+#include <iostream>
 
-int main(void) {
-    int device = 0;
-    cudaError_t err;
+#define CUDA_CHECK(call)                                                      \
+    do {                                                                      \
+        cudaError_t err = (call);                                             \
+        if (err != cudaSuccess) {                                             \
+            std::cerr << "CUDA error in " << __FILE__ << " at line "         \
+                      << __LINE__ << ": " << cudaGetErrorString(err)         \
+                      << std::endl;                                          \
+            exit(EXIT_FAILURE);                                               \
+        }                                                                     \
+    } while (0)
 
-    // Optionally set the device to ensure we are on device 0
-    err = cudaSetDevice(device);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Error setting device %d: %s\n", device, cudaGetErrorString(err));
-        return 1;
-    }
+int main() {
+    // Set device 0 as current device (optional but explicit)
+    CUDA_CHECK(cudaSetDevice(0));
 
     cudaDeviceProp prop;
-    err = cudaGetDeviceProperties(&prop, device);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Error retrieving device properties for device %d: %s\n", device, cudaGetErrorString(err));
-        return 1;
-    }
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
 
-    printf("Number of multiprocessors on device %d: %d\n", device, prop.multiProcessorCount);
+    std::cout << "Number of multiprocessors on device 0: "
+              << prop.multiProcessorCount << std::endl;
 
     return 0;
 }

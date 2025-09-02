@@ -1,28 +1,31 @@
+```cpp
 /*
 Write a program to get the ID of the currently active CUDA device using `cudaGetDevice` and print it.
-The aim of this program is exactly as stated: we want to query which CUDA device is currently active (i.e., the one that will be used for subsequent CUDA operations unless changed) and output that device's numeric ID to the console. 
 
-Thinking process:
-1. Include the necessary headers: <stdio.h> for printing and <cuda_runtime.h> for the CUDA runtime API.
-2. In the main function, declare an integer variable to hold the device ID.
-3. Call `cudaGetDevice(&deviceId)` to retrieve the current active device index. This function returns a cudaError_t; we should check for success.
-4. If the call is successful, print the device ID using `printf`. If it fails, print an error message using `cudaGetErrorString` to provide context.
-5. Return 0 from main.
-
-This is a minimal standalone CUDA C program that compiles with `nvcc` and prints the device ID. No device initialization or kernel launch is required; we're only querying state. 
+Thinking:
+1. We need to include the CUDA runtime header `cuda_runtime.h` to access `cudaGetDevice`.
+2. Use `cudaGetDevice` which returns a `cudaError_t` and outputs the device ID via a pointer argument.
+3. Handle the case where the call fails by printing the CUDA error string obtained via `cudaGetErrorString`.
+4. If the call succeeds, print the device ID to the console.
+5. Use standard C++ IO (`std::cout`) for printing.
+6. Return `EXIT_SUCCESS` on success and `EXIT_FAILURE` on error.
+7. Keep the program minimal and self‑contained, compiling with `nvcc`.
 */
 
-#include <stdio.h>
 #include <cuda_runtime.h>
+#include <iostream>
+#include <cstdlib>
 
-int main(void) {
-    int deviceId = -1;
-    cudaError_t err = cudaGetDevice(&deviceId);
+int main() {
+    int device = 0;
+    cudaError_t err = cudaGetDevice(&device);
     if (err != cudaSuccess) {
-        fprintf(stderr, "Error retrieving current CUDA device: %s\n",
-                cudaGetErrorString(err));
-        return 1;
+        std::cerr << "Error getting active CUDA device: " 
+                  << cudaGetErrorString(err) << std::endl;
+        return EXIT_FAILURE;
     }
-    printf("Current active CUDA device ID: %d\n", deviceId);
-    return 0;
+
+    std::cout << "Active CUDA device ID: " << device << std::endl;
+    return EXIT_SUCCESS;
 }
+```

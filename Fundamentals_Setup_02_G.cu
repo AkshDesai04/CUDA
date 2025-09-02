@@ -1,34 +1,35 @@
 /*
-Aim of the program: For each device, print its memory bus width in bits.
-Thinking:
-- Use CUDA runtime API to query devices.
-- First, obtain the number of CUDA devices with cudaGetDeviceCount().
-- Iterate over each device index.
-- For each device, retrieve its properties using cudaGetDeviceProperties().
-- The cudaDeviceProp structure contains a field called memoryBusWidth that stores the width of the memory bus in bits.
-- Print the device index, device name, and the memory bus width.
-- Use standard C++ headers (<cstdio>) for printing and <cuda_runtime.h> for CUDA functions.
-- Basic error checking is performed after CUDA API calls to ensure robustness.
-- The program compiles with nvcc and runs on any system with CUDA installed.
-*/
+ * Aim of the program (word for word):
+ * For each device, print its memory bus width in bits.
+ *
+ * Thinking and design:
+ * 1. Use CUDA Runtime API to discover all CUDA capable devices.
+ *    - Call cudaGetDeviceCount to get the number of devices.
+ * 2. Iterate over each device index.
+ *    - For each device, use cudaGetDeviceProperties to obtain a cudaDeviceProp struct.
+ * 3. From the struct, retrieve the memoryBusWidth field, which gives the bus width in bits.
+ * 4. Print the device index, name, and memory bus width in a readable format.
+ * 5. Include basic error checking after each CUDA call.
+ * 6. Keep the code minimal and portable: only standard C/C++ headers and CUDA runtime.
+ *
+ * The program is a simple console application that outputs one line per device.
+ * Example output:
+ *   Device 0: NVIDIA GeForce GTX 1080 Ti - Memory Bus Width: 352 bits
+ *
+ * Note: The code assumes that a CUDA-enabled GPU is present and that the
+ * CUDA runtime library is linked during compilation.
+ */
 
-#include <cstdio>
+#include <stdio.h>
 #include <cuda_runtime.h>
 
-// Helper macro for CUDA error checking
-#define CUDA_CHECK(call)                                              \
-    do {                                                              \
-        cudaError_t err = call;                                       \
-        if (err != cudaSuccess) {                                    \
-            fprintf(stderr, "CUDA error at %s:%d: %s\n",             \
-                    __FILE__, __LINE__, cudaGetErrorString(err));    \
-            return EXIT_FAILURE;                                     \
-        }                                                             \
-    } while (0)
-
-int main() {
+int main(void) {
     int deviceCount = 0;
-    CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
+    cudaError_t err = cudaGetDeviceCount(&deviceCount);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "Error: cudaGetDeviceCount failed: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
 
     if (deviceCount == 0) {
         printf("No CUDA devices found.\n");
@@ -37,10 +38,15 @@ int main() {
 
     for (int dev = 0; dev < deviceCount; ++dev) {
         cudaDeviceProp prop;
-        CUDA_CHECK(cudaGetDeviceProperties(&prop, dev));
+        err = cudaGetDeviceProperties(&prop, dev);
+        if (err != cudaSuccess) {
+            fprintf(stderr, "Error: cudaGetDeviceProperties failed for device %d: %s\n",
+                    dev, cudaGetErrorString(err));
+            continue;
+        }
 
-        printf("Device %d: %s\n", dev, prop.name);
-        printf("  Memory bus width: %d bits\n", prop.memoryBusWidth);
+        printf("Device %d: %s - Memory Bus Width: %d bits\n",
+               dev, prop.name, prop.memoryBusWidth);
     }
 
     return 0;
