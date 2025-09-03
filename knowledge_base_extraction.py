@@ -37,7 +37,12 @@ class QAGenerator:
         """
         try:
             print(f"Checking for models: {self.config['MODEL_NAME']} and {self.config['EMBED_MODEL_NAME']}")
-            models_available = [m['name'] for m in self.client.list()['models']]
+            
+            # Safely get the list of models to prevent KeyErrors
+            ollama_response = self.client.list()
+            models_list = ollama_response.get('models', [])
+            models_available = [m.get('name') for m in models_list if m and m.get('name')]
+
             if f"{self.config['MODEL_NAME']}:latest" not in models_available:
                 print(f"Model '{self.config['MODEL_NAME']}' not found. Pulling it now...")
                 self.client.pull(self.config['MODEL_NAME'])
@@ -222,3 +227,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
