@@ -1,222 +1,249 @@
-import os
-import json
-import ollama
-import faiss
-import numpy as np
-import PyPDF2
-import time
-import sys
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <thread>
+#include <fstream>
+#include <string>
+#include <filesystem>
 
-# --- Configuration ---
-CONFIG = {
-    "MODEL_NAME": "deepseek-r1:14b",
-    "EMBED_MODEL_NAME": "mxbai-embed-large",
-    "FILES_DIR": "./files",
-    "VDB_DIR": "./vdb",
-    "OUTPUT_JSON_DIR": "./output_json",
-    "CHUNK_SIZE": 500,  # words
-    "CHUNK_OVERLAP": 50, # words
-    "FAISS_K": 4, # Number of relevant chunks to retrieve for answering
+// Helper macro to wrap CUDA calls for error checking
+#define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
+void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
+    if (result) {
+        std::cerr << "CUDA Error at " << file << ":" << line << " code=" << static_cast<unsigned int>(result) << " \"" << cudaGetErrorString(result) << "\" for " << func << std::endl;
+        exit(99);
+    }
 }
 
-class QAGenerator:
-    """
-    A class to generate Question-Answer pairs from PDF documents using a RAG pipeline.
-    It separates the process into two phases: VDB creation and Q&A generation.
-    """
-    def __init__(self, config):
-        self.config = config
-        self.client = ollama.Client()
-        self._check_models()
-        os.makedirs(self.config["VDB_DIR"], exist_ok=True)
-        os.makedirs(self.config["OUTPUT_JSON_DIR"], exist_ok=True)
-        print("QAGenerator initialized.")
+// A simple kernel that simulates some ongoing work on the GPU.
+// In a real application, this would be a complex computation.
+__global__ void workload_kernel(float *data, size_t size) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size) {
+        // Simulate a computation step
+        data[idx] = sinf(data[idx]) * cosf(data[idx]) + 0.1f;
+    }
+}
 
-    def _check_models(self):
-        """Ensures the required models are available in Ollama."""
-        try:
-            ollama_response = self.client.list()
-            models_list = ollama_response.get('models', [])
-            models_available = [m.get('name') for m in models_list if m and m.get('name')]
+// Structure to hold the state of our "process".
+// This includes all the data that needs to be migrated between GPUs.
+struct GpuProcessState {
+    float* d_data = nullptr; // Pointer to the data on the current GPU
+    size_t data_size = 0;
+    int current_gpu = -1;
+};
 
-            if f"{self.config['MODEL_NAME']}:latest" not in models_available:
-                print(f"Model '{self.config['MODEL_NAME']}' not found. Pulling it now...")
-                self.client.pull(self.config['MODEL_NAME'])
-            if f"{self.config['EMBED_MODEL_NAME']}:latest" not in models_available:
-                print(f"Embedding model '{self.config['EMBED_MODEL_NAME']}' not found. Pulling it now...")
-                self.client.pull(self.config['EMBED_MODEL_NAME'])
-        except Exception as e:
-            print(f"Error connecting to Ollama or pulling models: {e}")
-            print("Please ensure Ollama is running and accessible.")
-            sys.exit(1)
+/**
+ * @brief Initializes the process state and allocates memory on a specific GPU.
+ * @param state The GpuProcessState object to initialize.
+ * @param gpu_id The ID of the GPU to start the process on.
+ * @param num_elements The number of float elements to process.
+ */
+void initialize_process(GpuProcessState& state, int gpu_id, size_t num_elements) {
+    state.current_gpu = gpu_id;
+    state.data_size = num_elements * sizeof(float);
 
-    def _load_and_chunk_pdf(self, pdf_path):
-        """Loads text from a PDF and splits it into chunks."""
-        print(f"  - Loading and chunking '{os.path.basename(pdf_path)}'...")
-        try:
-            with open(pdf_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
-                text = "".join(page.extract_text() for page in reader.pages if page.extract_text())
-            
-            words = text.split()
-            chunks = []
-            for i in range(0, len(words), self.config["CHUNK_SIZE"] - self.config["CHUNK_OVERLAP"]):
-                chunk = " ".join(words[i:i + self.config["CHUNK_SIZE"]])
-                chunks.append(chunk)
-            print(f"  - Document split into {len(chunks)} chunks.")
-            return chunks
-        except Exception as e:
-            print(f"  - Error reading or chunking PDF {pdf_path}: {e}")
-            return []
-
-    def _get_embeddings(self, texts, doc_name):
-        """Generates embeddings for a list of text chunks."""
-        print(f"  - Generating embeddings for {len(texts)} chunks of '{doc_name}'...")
-        embeddings = []
-        for i, text in enumerate(texts):
-            try:
-                response = self.client.embeddings(model=self.config["EMBED_MODEL_NAME"], prompt=text)
-                embeddings.append(response["embedding"])
-                print(f"    - Embedded chunk {i+1}/{len(texts)}", end='\r')
-            except Exception as e:
-                print(f"\n    - Error generating embedding for chunk {i+1}: {e}")
-                embeddings.append([0.0] * 1024) # mxbai-embed-large has 1024 dimensions
-        print(f"\n  - Embedding generation complete for '{doc_name}'.")
-        return np.array(embeddings).astype('float32')
-
-    def build_and_save_vdb(self, pdf_path):
-        """Creates and saves the Vector Database (FAISS index) and chunks for a PDF."""
-        doc_name = os.path.basename(pdf_path)
-        base_filename = os.path.splitext(doc_name)[0]
-        
-        index_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.faiss")
-        chunks_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.chunks.json")
-
-        if os.path.exists(index_path) and os.path.exists(chunks_path):
-            print(f"VDB for '{doc_name}' already exists. Skipping build.")
-            return
-
-        chunks = self._load_and_chunk_pdf(pdf_path)
-        if not chunks:
-            return
-
-        embeddings = self._get_embeddings(chunks, doc_name)
-        if embeddings.shape[0] == 0:
-            print(f"  - No embeddings generated for '{doc_name}'. Cannot create VDB.")
-            return
-
-        dimension = embeddings.shape[1]
-        index = faiss.IndexFlatL2(dimension)
-        index.add(embeddings)
-        
-        print(f"  - Saving FAISS index to {index_path}")
-        faiss.write_index(index, index_path)
-        
-        print(f"  - Saving text chunks to {chunks_path}")
-        with open(chunks_path, 'w', encoding='utf-8') as f:
-            json.dump(chunks, f, indent=4)
-            
-        print(f"VDB for '{doc_name}' created successfully.")
-
-    def _generate_response_with_retry(self, model, prompt, max_retries=3):
-        """Generates a response from the LLM with retry logic."""
-        for attempt in range(max_retries):
-            try:
-                response = self.client.generate(model=model, prompt=prompt, stream=False)
-                return response['response'].strip()
-            except Exception as e:
-                print(f"\nLLM call failed (attempt {attempt+1}/{max_retries}): {e}")
-                time.sleep(5 * (attempt + 1))
-        return None
-
-    def generate_qa_from_vdb(self, pdf_file):
-        """Generates Q&A pairs using a pre-built VDB."""
-        base_filename = os.path.splitext(pdf_file)[0]
-        index_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.faiss")
-        chunks_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.chunks.json")
-        output_path = os.path.join(self.config["OUTPUT_JSON_DIR"], f"{base_filename}.json")
-
-        print(f"\n--- Generating Q&A for {pdf_file} ---")
-
-        try:
-            print(f"  - Loading FAISS index from {index_path}")
-            index = faiss.read_index(index_path)
-            print(f"  - Loading text chunks from {chunks_path}")
-            with open(chunks_path, 'r', encoding='utf-8') as f:
-                chunks = json.load(f)
-        except Exception as e:
-            print(f"Error loading VDB files for '{pdf_file}': {e}. Skipping.")
-            return
-
-        qa_pairs = []
-        total_chunks = len(chunks)
-        print(f"  - Starting Q&A generation for {total_chunks} source chunks...")
-
-        for i, chunk in enumerate(chunks):
-            print(f"\n  --- Processing Chunk {i+1}/{total_chunks} for {pdf_file} ---")
-            
-            question_prompt = f"Based ONLY on the following text, generate one single, clear, and specific question. Do not answer it. Output only the question.\n\nText:\n---\n{chunk}\n---\n\nQuestion:"
-            question = self._generate_response_with_retry(self.config["MODEL_NAME"], question_prompt)
-
-            if not question:
-                print(f"  - Failed to generate question for this chunk. Skipping.")
-                continue
-            
-            print(f"    [Generated Question]: {question}")
-
-            query_embedding_response = self.client.embeddings(model=self.config["EMBED_MODEL_NAME"], prompt=question)
-            query_embedding = np.array([query_embedding_response["embedding"]]).astype('float32')
-            
-            distances, indices = index.search(query_embedding, self.config["FAISS_K"])
-            retrieved_indices = indices[0]
-            context = "\n---\n".join(chunks[idx] for idx in retrieved_indices)
-
-            answer_prompt = f"You are an expert Q&A system. Use the provided context to give a comprehensive and accurate answer to the question. If the context is insufficient, state that the answer cannot be found in the provided text.\n\nContext:\n---\n{context}\n---\n\nQuestion:\n{question}\n\nAnswer:"
-            answer = self._generate_response_with_retry(self.config["MODEL_NAME"], answer_prompt)
-
-            if not answer:
-                print(f"    - Failed to generate answer for this question. Skipping.")
-                continue
-
-            print(f"    [Generated Answer]: {answer[:150]}...")
-
-            qa_pairs.append({"question": question, "answer": answer, "source_chunk_index": i})
-            
-            if (i + 1) % 10 == 0:
-                print(f"\n  - Saving intermediate progress with {len(qa_pairs)} pairs to {output_path}")
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(qa_pairs, f, indent=4)
-        
-        print(f"\nFinished processing {pdf_file}. Total Q&A pairs generated: {len(qa_pairs)}.")
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(qa_pairs, f, indent=4)
-        print(f"Final results saved to {output_path}")
-
-def main():
-    """Entry point of the script."""
-    generator = QAGenerator(CONFIG)
+    std::cout << "--> Initializing process on GPU " << gpu_id << std::endl;
     
-    pdf_files = [f for f in os.listdir(CONFIG["FILES_DIR"]) if f.lower().endswith(".pdf")]
+    // Set the active device for the current host thread
+    checkCudaErrors(cudaSetDevice(gpu_id));
 
-    if not pdf_files:
-        print(f"No PDF files found in the '{CONFIG['FILES_DIR']}' directory.")
-        return
+    // Allocate memory on the selected GPU
+    checkCudaErrors(cudaMalloc(&state.d_data, state.data_size));
 
-    print(f"Found {len(pdf_files)} PDF files: {', '.join(pdf_files)}")
+    // Create some initial host data
+    std::vector<float> h_data(num_elements);
+    for(size_t i = 0; i < num_elements; ++i) {
+        h_data[i] = static_cast<float>(i);
+    }
 
-    # Phase 1: Create all Vector Databases first
-    print(f"\n{'='*25} Phase 1: Building Vector Databases {'='*25}")
-    for pdf_file in pdf_files:
-        pdf_path = os.path.join(CONFIG["FILES_DIR"], pdf_file)
-        generator.build_and_save_vdb(pdf_path)
+    // Copy initial data from host to the GPU
+    checkCudaErrors(cudaMemcpy(state.d_data, h_data.data(), state.data_size, cudaMemcpyHostToDevice));
+    std::cout << "    Process initialized successfully.\n" << std::endl;
+}
+
+/**
+ * @brief Simulates running a batch of work on the currently active GPU.
+ * @param state The current state of the process.
+ * @param iterations The number of kernel launches to perform.
+ */
+void run_workload(GpuProcessState& state, int iterations) {
+    std::cout << "--> Running workload on GPU " << state.current_gpu << " for " << iterations << " iterations..." << std::endl;
     
-    # Phase 2: Generate Q&A pairs from the created VDBs
-    print(f"\n{'='*25} Phase 2: Generating Q&A Pairs {'='*25}")
-    for pdf_file in pdf_files:
-        generator.generate_qa_from_vdb(pdf_file)
+    // Ensure the correct device is set for this thread
+    checkCudaErrors(cudaSetDevice(state.current_gpu));
 
-    print("\nAll documents have been processed.")
+    int threads_per_block = 256;
+    int blocks_per_grid = (state.data_size / sizeof(float) + threads_per_block - 1) / threads_per_block;
 
-if __name__ == "__main__":
-    main()
+    for (int i = 0; i < iterations; ++i) {
+        workload_kernel<<<blocks_per_grid, threads_per_block>>>(state.d_data, state.data_size / sizeof(float));
+        // In a real app, you might check for a migration signal here
+    }
+    
+    // Wait for all work on the current GPU to complete before proceeding
+    checkCudaErrors(cudaDeviceSynchronize());
+    std::cout << "    Workload completed.\n" << std::endl;
+}
+
+
+/**
+ * @brief Migrates the entire process state from its current GPU to a new one.
+ * @param state The process state to migrate.
+ * @param target_gpu_id The ID of the GPU to move the process to.
+ */
+void migrate_process(GpuProcessState& state, int target_gpu_id) {
+    if (state.current_gpu == target_gpu_id) {
+        std::cout << "--> Already on target GPU " << target_gpu_id << ". No migration needed." << std::endl;
+        return;
+    }
+
+    std::cout << "=====================================================" << std::endl;
+    std::cout << ">>> Starting Migration from GPU " << state.current_gpu << " to GPU " << target_gpu_id << " <<<" << std::endl;
+    std::cout << "=====================================================\n" << std::endl;
+    
+    // 1. PAUSE: Synchronize to ensure all pending work on the source GPU is finished.
+    // This is our "pause" step.
+    std::cout << "    Step 1: Pausing and synchronizing work on source GPU " << state.current_gpu << std::endl;
+    checkCudaErrors(cudaSetDevice(state.current_gpu));
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    // 2. SAVE STATE: Allocate temporary host memory to hold the GPU data.
+    std::vector<float> h_temp_data(state.data_size / sizeof(float));
+    
+    // 3. COPY TO HOST: Copy the data from the source GPU device to host memory.
+    std::cout << "    Step 2: Copying data from source GPU " << state.current_gpu << " to Host RAM." << std::endl;
+    checkCudaErrors(cudaMemcpy(h_temp_data.data(), state.d_data, state.data_size, cudaMemcpyDeviceToHost));
+    
+    // 4. CLEANUP SOURCE: Free the memory on the source GPU.
+    std::cout << "    Step 3: Freeing resources on source GPU " << state.current_gpu << std::endl;
+    checkCudaErrors(cudaFree(state.d_data));
+    state.d_data = nullptr;
+
+    // 5. SET NEW TARGET: Change the active device for the current thread to the target GPU.
+    std::cout << "    Step 4: Setting active device to target GPU " << target_gpu_id << std::endl;
+    checkCudaErrors(cudaSetDevice(target_gpu_id));
+    state.current_gpu = target_gpu_id;
+
+    // 6. ALLOCATE ON TARGET: Allocate memory on the new target GPU.
+    checkCudaErrors(cudaMalloc(&state.d_data, state.data_size));
+
+    // 7. COPY TO TARGET: Copy the saved state from host memory to the new GPU.
+    std::cout << "    Step 5: Copying data from Host RAM to target GPU " << target_gpu_id << std::endl;
+    checkCudaErrors(cudaMemcpy(state.d_data, h_temp_data.data(), state.data_size, cudaMemcpyHostToDevice));
+
+    // 8. RESUME: The migration is complete. The process can now resume its work on the new GPU.
+    std::cout << "\n>>> Migration Complete! Process is now running on GPU " << target_gpu_id << " <<<\n" << std::endl;
+}
+
+/**
+ * @brief Copies the final data from the GPU to the host and saves it to a text file.
+ * @param state The current state of the process.
+ * @param filename The name of the file to save the output to.
+ */
+void save_output_to_file(GpuProcessState& state, const std::string& filename) {
+    std::cout << "--> Saving final output to file: " << filename << std::endl;
+
+    // Ensure the correct device is active
+    checkCudaErrors(cudaSetDevice(state.current_gpu));
+
+    // Create a host vector to store the results
+    size_t num_elements = state.data_size / sizeof(float);
+    std::vector<float> h_results(num_elements);
+
+    // Copy the final data from the GPU device back to the host
+    std::cout << "    Copying " << num_elements << " elements from GPU " << state.current_gpu << " to host..." << std::endl;
+    checkCudaErrors(cudaMemcpy(h_results.data(), state.d_data, state.data_size, cudaMemcpyDeviceToHost));
+
+    // Open the output file
+    std::ofstream outfile(filename);
+    if (!outfile.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
+        return;
+    }
+
+    // Write the data to the file, one number per line for readability
+    std::cout << "    Writing data to " << filename << "..." << std::endl;
+    for (size_t i = 0; i < num_elements; ++i) {
+        outfile << h_results[i] << "\n";
+    }
+
+    outfile.close();
+    std::cout << "    Successfully saved output.\n" << std::endl;
+}
+
+
+/**
+ * @brief Cleans up and frees all allocated resources.
+ * @param state The process state to clean up.
+ */
+void cleanup_process(GpuProcessState& state) {
+    if (state.d_data != nullptr) {
+        std::cout << "--> Cleaning up resources on GPU " << state.current_gpu << std::endl;
+        checkCudaErrors(cudaSetDevice(state.current_gpu));
+        checkCudaErrors(cudaFree(state.d_data));
+        state.d_data = nullptr;
+        std::cout << "    Cleanup complete." << std::endl;
+    }
+}
+
+
+int main() {
+    int device_count = 0;
+    checkCudaErrors(cudaGetDeviceCount(&device_count));
+    if (device_count < 2) {
+        std::cerr << "This program requires at least 2 GPUs to demonstrate migration." << std::endl;
+        return 1;
+    }
+    std::cout << "Found " << device_count << " CUDA-capable GPUs.\n" << std::endl;
+
+    // Define our process and its workload size
+    GpuProcessState my_process;
+    size_t num_elements = 1024 * 1024 * 10; // 10 million floats
+
+    // =======================================================
+    // PHASE 1: Start on GPU 0 and do some work
+    // =======================================================
+    int initial_gpu = 0;
+    initialize_process(my_process, initial_gpu, num_elements);
+    run_workload(my_process, 100); // Run 100 iterations
+
+    std::cout << "Process is running. Simulating a 3-second pause before migration..." << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+
+
+    // =======================================================
+    // PHASE 2: Migrate the process from GPU 0 to GPU 1
+    // =======================================================
+    int target_gpu = 1;
+    migrate_process(my_process, target_gpu);
+
+
+    // =======================================================
+    // PHASE 3: Continue working on GPU 1
+    // =======================================================
+    run_workload(my_process, 150); // Run 150 more iterations on the new GPU
+
+
+    // =======================================================
+    // PHASE 4: Save the final output
+    // =======================================================
+    std::string output_dir = "output";
+    // Note: Creating a directory requires the C++17 standard or later.
+    // Ensure your host compiler (like g++) supports it.
+    // You may need to add `-std=c++17` to your nvcc command line.
+    if (!std::filesystem::exists(output_dir)) {
+        std::cout << "--> Creating output directory: " << output_dir << std::endl;
+        std::filesystem::create_directory(output_dir);
+    }
+    save_output_to_file(my_process, output_dir + "/gpu_process_migrator.txt");
+
+
+    // =======================================================
+    // PHASE 5: Cleanup
+    // =======================================================
+    cleanup_process(my_process);
+
+    return 0;
+}
 
