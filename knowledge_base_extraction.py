@@ -9,7 +9,7 @@ import sys
 
 # --- Configuration ---
 CONFIG = {
-    "MODEL_NAME": "deepseek-r1:14b",
+    "MODEL_NAME": "gemma3:27b",
     "EMBED_MODEL_NAME": "mxbai-embed-large",
     "FILES_DIR": "./files",
     "VDB_DIR": "./vdb",
