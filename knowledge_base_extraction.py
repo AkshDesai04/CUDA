@@ -13,7 +13,7 @@ CONFIG = {
     "EMBED_MODEL_NAME": "mxbai-embed-large",
     "FILES_DIR": "./files",
     "VDB_DIR": "./vdb",
-    "OUTPUT_JSON_DIR": "./output_json",
+    "OUTPUT_JSON_DIR": "./questions_from_ebooks",  # New output folder
     "CHUNK_SIZE": 500,  # words
     "CHUNK_OVERLAP": 1000, # words
     "FAISS_K": 4, # Number of relevant chunks to retrieve for answering
@@ -21,7 +21,7 @@ CONFIG = {
 
 class QAGenerator:
     """
-    A class to generate Question-Answer pairs from PDF documents using a RAG pipeline.
+    A class to generate multiple questions from PDF documents using a RAG pipeline.
     It separates the process into two phases: VDB creation and Q&A generation.
     """
     def __init__(self, config):
@@ -130,7 +130,7 @@ class QAGenerator:
         return None
 
     def generate_qa_from_vdb(self, pdf_file):
-        """Generates CUDA/coding-related questions from a pre-built VDB."""
+        """Generates multiple CUDA/coding-related questions from a pre-built VDB."""
         base_filename = os.path.splitext(pdf_file)[0]
         index_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.faiss")
         chunks_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.chunks.json")
@@ -155,15 +155,18 @@ class QAGenerator:
         for i, chunk in enumerate(chunks):
             print(f"\n  --- Processing Chunk {i+1}/{total_chunks} for {pdf_file} ---")
             
-            question_prompt = f"Based ONLY on the following text, generate one clear, detailed question specifically related to CUDA, coding, or related technical topics. Do not answer it. Output only the question.\n\nText:\n---\n{chunk}\n---\n\nQuestion:"
-            question = self._generate_response_with_retry(self.config["MODEL_NAME"], question_prompt)
+            question_prompt = f"Based ONLY on the following text, generate multiple clear and detailed questions specifically related to CUDA, coding, or related technical topics. Each question should be distinct. Do not answer them. Output only the questions.\n\nText:\n---\n{chunk}\n---\n\nQuestions:"
+            questions_text = self._generate_response_with_retry(self.config["MODEL_NAME"], question_prompt)
 
-            if not question:
-                print(f"  - Failed to generate question for this chunk. Skipping.")
+            if not questions_text:
+                print(f"  - Failed to generate questions for this chunk. Skipping.")
                 continue
             
-            print(f"    [Generated Question]: {question}")
-            questions.append({"question": question, "source_chunk_index": i})
+            print(f"    [Generated Questions]: {questions_text}")
+            # Split the generated text into separate questions
+            question_list = [q.strip() for q in questions_text.split("\n") if q.strip()]
+            for q in question_list:
+                questions.append({"question": q, "source_chunk_index": i})
             
             if (i + 1) % 10 == 0:
                 print(f"\n  - Saving intermediate progress with {len(questions)} questions to {output_path}")
