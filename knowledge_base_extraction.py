@@ -15,7 +15,7 @@ CONFIG = {
     "VDB_DIR": "./vdb",
     "OUTPUT_JSON_DIR": "./output_json",
     "CHUNK_SIZE": 500,  # words
-    "CHUNK_OVERLAP": 50, # words
+    "CHUNK_OVERLAP": 1000, # words
     "FAISS_K": 4, # Number of relevant chunks to retrieve for answering
 }
 
@@ -51,7 +51,7 @@ class QAGenerator:
             sys.exit(1)
 
     def _load_and_chunk_pdf(self, pdf_path):
-        """Loads text from a PDF and splits it into chunks."""
+        """Loads text from a PDF and splits it into overlapping chunks."""
         print(f"  - Loading and chunking '{os.path.basename(pdf_path)}'...")
         try:
             with open(pdf_path, 'rb') as f:
@@ -63,7 +63,7 @@ class QAGenerator:
             for i in range(0, len(words), self.config["CHUNK_SIZE"] - self.config["CHUNK_OVERLAP"]):
                 chunk = " ".join(words[i:i + self.config["CHUNK_SIZE"]])
                 chunks.append(chunk)
-            print(f"  - Document split into {len(chunks)} chunks.")
+            print(f"  - Document split into {len(chunks)} chunks with overlap.")
             return chunks
         except Exception as e:
             print(f"  - Error reading or chunking PDF {pdf_path}: {e}")
@@ -130,13 +130,13 @@ class QAGenerator:
         return None
 
     def generate_qa_from_vdb(self, pdf_file):
-        """Generates Q&A pairs using a pre-built VDB."""
+        """Generates CUDA/coding-related questions from a pre-built VDB."""
         base_filename = os.path.splitext(pdf_file)[0]
         index_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.faiss")
         chunks_path = os.path.join(self.config["VDB_DIR"], f"{base_filename}.chunks.json")
         output_path = os.path.join(self.config["OUTPUT_JSON_DIR"], f"{base_filename}.json")
 
-        print(f"\n--- Generating Q&A for {pdf_file} ---")
+        print(f"\n--- Generating CUDA/Coding Questions for {pdf_file} ---")
 
         try:
             print(f"  - Loading FAISS index from {index_path}")
@@ -148,14 +148,14 @@ class QAGenerator:
             print(f"Error loading VDB files for '{pdf_file}': {e}. Skipping.")
             return
 
-        qa_pairs = []
+        questions = []
         total_chunks = len(chunks)
-        print(f"  - Starting Q&A generation for {total_chunks} source chunks...")
+        print(f"  - Starting question generation for {total_chunks} source chunks...")
 
         for i, chunk in enumerate(chunks):
             print(f"\n  --- Processing Chunk {i+1}/{total_chunks} for {pdf_file} ---")
             
-            question_prompt = f"Based ONLY on the following text, generate one single, clear, and specific question. Do not answer it. Output only the question.\n\nText:\n---\n{chunk}\n---\n\nQuestion:"
+            question_prompt = f"Based ONLY on the following text, generate one clear, detailed question specifically related to CUDA, coding, or related technical topics. Do not answer it. Output only the question.\n\nText:\n---\n{chunk}\n---\n\nQuestion:"
             question = self._generate_response_with_retry(self.config["MODEL_NAME"], question_prompt)
 
             if not question:
@@ -163,33 +163,16 @@ class QAGenerator:
                 continue
             
             print(f"    [Generated Question]: {question}")
-
-            query_embedding_response = self.client.embeddings(model=self.config["EMBED_MODEL_NAME"], prompt=question)
-            query_embedding = np.array([query_embedding_response["embedding"]]).astype('float32')
-            
-            distances, indices = index.search(query_embedding, self.config["FAISS_K"])
-            retrieved_indices = indices[0]
-            context = "\n---\n".join(chunks[idx] for idx in retrieved_indices)
-
-            answer_prompt = f"You are an expert Q&A system. Use the provided context to give a comprehensive and accurate answer to the question. If the context is insufficient, state that the answer cannot be found in the provided text.\n\nContext:\n---\n{context}\n---\n\nQuestion:\n{question}\n\nAnswer:"
-            answer = self._generate_response_with_retry(self.config["MODEL_NAME"], answer_prompt)
-
-            if not answer:
-                print(f"    - Failed to generate answer for this question. Skipping.")
-                continue
-
-            print(f"    [Generated Answer]: {answer[:150]}...")
-
-            qa_pairs.append({"question": question, "answer": answer, "source_chunk_index": i})
+            questions.append({"question": question, "source_chunk_index": i})
             
             if (i + 1) % 10 == 0:
-                print(f"\n  - Saving intermediate progress with {len(qa_pairs)} pairs to {output_path}")
+                print(f"\n  - Saving intermediate progress with {len(questions)} questions to {output_path}")
                 with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(qa_pairs, f, indent=4)
+                    json.dump(questions, f, indent=4)
         
-        print(f"\nFinished processing {pdf_file}. Total Q&A pairs generated: {len(qa_pairs)}.")
+        print(f"\nFinished processing {pdf_file}. Total questions generated: {len(questions)}.")
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(qa_pairs, f, indent=4)
+            json.dump(questions, f, indent=4)
         print(f"Final results saved to {output_path}")
 
 def main():
@@ -211,7 +194,7 @@ def main():
         generator.build_and_save_vdb(pdf_path)
     
     # Phase 2: Generate Q&A pairs from the created VDBs
-    print(f"\n{'='*25} Phase 2: Generating Q&A Pairs {'='*25}")
+    print(f"\n{'='*25} Phase 2: Generating CUDA/Coding Questions {'='*25}")
     for pdf_file in pdf_files:
         generator.generate_qa_from_vdb(pdf_file)
 
